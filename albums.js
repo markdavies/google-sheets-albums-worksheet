@@ -1,4 +1,6 @@
 var inputInterval;
+var averageColumnTitle = 'Av. Album Score';
+var maxResults = 20;
 
 function onOpen() {
 
@@ -6,6 +8,7 @@ function onOpen() {
 
     ui.createMenu('Albums')
         .addItem('Add Album', 'addAlbum')
+        .addItem('Generate Results', 'generateResults')
         .addToUi();
   
 }
@@ -80,7 +83,6 @@ function doSearch(input){
   for(var i in response.albums.items){
     
     var album = response.albums.items[i];
-    console.log(album);
     var artists = album.artists.map(function(artist){
       return artist.name;
     });
@@ -113,26 +115,18 @@ function doSearch(input){
 function doAlbumAdd(option){
   
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getActiveSheet();
+  var sheet = ss.getSheetByName('Albums');
   var rangeData = sheet.getDataRange();
   var rowStart = 2;
   var lastRow = rangeData.getLastRow();
-  var lastColumn = rangeData.getLastColumn();
-  var titleRange = sheet.getRange(1, 1, 1, lastColumn);
-  var titleRangeValues = titleRange.getValues();
+  var lastColumn = rangeData.getLastColumn();  
   var searchRange = sheet.getRange(rowStart, 1, lastRow-1, 1);
   var searchRangeValues = searchRange.getValues();
   var found = false;
   var addAtRow = -1;
   var exists = false;
   var nextYear = (parseInt(option.releaseYear) + 1).toString();
-  var averageScoreColumn = -1;
-  
-  for (var j = 0; j < lastColumn; j++){
-    if(titleRangeValues[0][j] == 'Av. Album Score'){
-      averageScoreColumn = j;
-    }
-  }
+  var scoreColumnInfo = getScoreColumnInfo();
   
   for (var i = 0; i < lastRow - 1; i++){
     
@@ -173,10 +167,10 @@ function doAlbumAdd(option){
     styleRange.setFontWeight('normal');
     
     // set question marks and styles in score columns
-    var scoreRange = sheet.getRange(addAtRow, 5, 1, averageScoreColumn - 5);
+    var scoreRange = sheet.getRange(addAtRow, 5, 1, scoreColumnInfo['average'] - 6);
     scoreRange.setValue('?');
     
-    var allScoresRange = sheet.getRange(2, 5, lastRow, averageScoreColumn - 5);
+    var allScoresRange = sheet.getRange(2, 5, lastRow, scoreColumnInfo['average'] - 6);
     
     var rule1 = SpreadsheetApp.newConditionalFormatRule()
                 .whenTextEqualTo('?')
@@ -193,13 +187,121 @@ function doAlbumAdd(option){
     sheet.setConditionalFormatRules([rule1, rule2]);
     
     // set formula for average score
-    var averageRange = sheet.getRange(addAtRow, averageScoreColumn + 1, 1, 1);
+    var averageRange = sheet.getRange(addAtRow, scoreColumnInfo['average'], 1, 1);
     var scoreRange = 'E'+addAtRow+':I'+addAtRow;
     var formula = '=IF(COUNTIF('+scoreRange+',"<>?") > 1, ROUND(DIVIDE(SUMIF('+scoreRange+', "<>?"), COUNTIF('+scoreRange+',"<>?")),2), "")';
     
     averageRange.setFormula(formula);
     
+  }
+  
+}
+
+function getScoreColumnInfo(){
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Albums');
+  var rangeData = sheet.getDataRange();
+  var lastColumn = rangeData.getLastColumn();
+  var titleRange = sheet.getRange(1, 1, 1, lastColumn);
+  var titleRangeValues = titleRange.getValues();
+  
+  var info = {
+    'scorers': {},
+    'average': -1
+  };
+  
+  for (var j = 4; j < lastColumn; j++){
+    var title = titleRangeValues[0][j];
+    if(title == averageColumnTitle){
+      info['average'] = j + 1;
+    }else if(title != ''){
+      info['scorers'][titleRangeValues[0][j]] = j + 1;
+    }
+  }
+  
+  return info;
+  
+}
+
+function generateResults(){
+  
+  var scoreColumnInfo = getScoreColumnInfo();
+  var averageIndex = scoreColumnInfo['average'] - 1;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Albums');
+  var rangeData = sheet.getDataRange();
+  var rowStart = 2;
+  var lastRow = rangeData.getLastRow();
+  
+  var scoreRange = sheet.getRange(rowStart, 1, lastRow-1, scoreColumnInfo['average']);
+  var scoreRangeValues = scoreRange.getValues();
+  
+  var scoreTallies = {};
+  var year = '';
+  
+  scoreTallies['average'] = [];
+  for(var scorer in scoreColumnInfo['scorers']){
+    scoreTallies[scorer] = [];
+  }
+  
+  for(var i = 0; i < lastRow - 1; i++){
+    
+    if(!isNaN(parseInt(scoreRangeValues[i][0]))){
+      year = scoreRangeValues[i][0];
+      
+    }else{
+      
+      var artist = scoreRangeValues[i][0];
+      var album = scoreRangeValues[i][1];
+      
+      for(var scorer in scoreColumnInfo['scorers']){
+        var scorerIndex = scoreColumnInfo['scorers'][scorer];
+        var score = scoreRangeValues[i][scorerIndex - 1];
+        
+        if(!isNaN(parseFloat(score))){
+          scoreTallies[scorer].push({ artist: artist, album: album, year: year, score: score });
+        }
+        
+      }
+      
+      var averageScore = scoreRangeValues[i][averageIndex];
+      
+      if(!isNaN(parseFloat(averageScore))){
+        scoreTallies['average'].push({ artist: artist, album: album, year: year, score: averageScore });
+      }
+      
+     }
     
   }
   
+  for(var tallyName in scoreTallies){
+    scoreTallies[tallyName].sort(compareTallyScores);
+  }
+  
+  var scorers = Object.keys(scoreColumnInfo['scorers']);
+  scorers.push('average');
+  
+  for(var k in scorers){
+    var sheetName = 'Results: '+scorers[k];
+    var sheet = ss.getSheetByName(sheetName);
+    if(sheet) ss.deleteSheet(sheet);
+    sheet = ss.insertSheet();
+    sheet.setName(sheetName);
+    
+    for(var l in scoreTallies[scorers[k]]){
+      var album = scoreTallies[scorers[k]][l];
+      sheet.insertRows(l + 1, 1);
+      var range = sheet.getRange(l + 1,5);
+      range.setValues([l + 1, album.artist, album.album, album.year, album.score]);
+    }
+    
+  }
+  
+}
+
+function compareTallyScores(a, b){
+  if ( a.score < b.score ) return 1;
+  if ( a.score > b.score ) return -1;
+  return 0;
 }
