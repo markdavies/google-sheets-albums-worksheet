@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+
+      html{
+        padding: 50px 0;
+        font-family: Helvetica, Arial, sans-serif;
+      }
+      
+      .search-input{
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        font-size: 20px;
+        padding: 15px 10px;
+        font-family: Helvetica, Arial, sans-serif;
+        width: calc(100% - 35px);
+      }
+      
+      #output{
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+      
+      #output .option-item{
+        width: calc(50% - 50px);
+        padding-right: 50px;
+        margin-top: 50px;
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        transition: background 250ms ease;
+        text-decoration: none;
+        color: black;
+      }
+      
+      #output .option-item:hover{
+        background: rgba(0,0,0,.15);
+      }
+      
+      #output .option-item--image{
+        width: 50%;
+        height: auto;
+      }
+      
+      #output .option-item--info{
+        width: 50%;
+        padding-left: 20px;
+      }
+      
+      #output .option-item--info p{
+        margin-bottom: 0;
+        margin-top: 5px;
+      }
+      
+      #output .option-item .add-button{
+        display: inline-block;
+        background: black;
+        color: white;
+        padding: 5px 10px;
+        margin-top: 10px;
+      }
+      
+      #output .option-item .adding{
+          display: none;
+      }
+      
+      #output.selection-made .option-item.selected .add-button{
+          display: none;
+      }
+      
+      #output.selection-made .option-item.selected .adding{
+          display: block;
+      }
+      
+      #output.selection-made .option-item:not(.selected){
+        opacity: .25;
+      }
+
+    </style>
+    
+    <script>
+    
+      window.addEventListener('load', addListeners);
+      var inputTimeout = false;
+      var resultsLookup = {};
+      
+      function addListeners() {
+      
+        var input = document.querySelector('input[name="query"]');
+        
+        input.addEventListener('keydown', function(e){
+          
+          if ((e.keyCode >= 48 && e.keyCode <= 57)
+            || (e.keyCode >= 65 && e.keyCode <= 90)
+            || (e.keyCode >= 97 && e.keyCode <= 122)) {
+        
+            clearTimeout(inputTimeout);
+            inputTimeout = setTimeout(function(){
+                var output = document.querySelector('#output');
+                output.innerHTML = '<br/><br/>Loading ...';
+                google.script.run.withSuccessHandler(searchResultHandler).doSearch(e.target.value);
+            }, 1000);
+        
+          }
+          
+        });
+        
+        var output = document.querySelector('#output');
+        
+        output.addEventListener('click', function(e){
+          
+          if(!output.classList.contains('selection-made')){
+              var optionItem = e.target.closest('.option-item');
+              if(optionItem){
+                  optionItem.classList.add('selected');
+                  output.classList.add('selection-made');
+                  google.script.run.withSuccessHandler(closeAfterAddHandler).doAlbumAdd(resultsLookup[optionItem.getAttribute('data-option-id')]);
+              }
+          }
+          
+          e.preventDefault();
+          e.stopPropagation();
+          
+        });
+        
+      }
+      
+      function searchResultHandler(results, input) {
+        
+        var html = '';
+        var output = document.querySelector('#output');
+        
+        for(var i in results){
+            
+            var option = results[i];
+            resultsLookup[option.id] = option;
+            
+            var itemHtml = '';
+            itemHtml += '<a href="#" class="option-item" data-option-id="'+option.id+'">';
+            if(option.image != null) itemHtml += '<img class="option-item--image" src="'+option.image+'" />';
+            itemHtml += '<div class="option-item--info">';
+            itemHtml += '<p>'+option.albumName+'</p>';
+            itemHtml += '<p>'+option.artists+'</p>';
+            itemHtml += '<p>'+option.releaseYear+'</p>';
+            itemHtml += '<p class="add-button">Add +</p>';
+            itemHtml += '<p class="adding">Adding ...</p>';
+            itemHtml += '</div>';
+            itemHtml += '</a>';
+            
+            html += itemHtml;
+        }
+        
+        output.innerHTML = html;
+        
+      }
+      
+      function closeAfterAddHandler(){
+          google.script.host.close();
+      }
+      
+    </script>
+  </head>
+  <body>
+    <input name="query" type="text" class="search-input" />
+    <div id="output"></div>
+ </body>
+</html>
